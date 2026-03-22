@@ -76,7 +76,7 @@ int   sweepCount   = 0;
 //  sweep is somewhere else entirely.
 // ================================================================
 int   MAX_DOTS  = 24;
-int   DOT_LIFE  = 500;      // frames before dot fades out
+int   DOT_LIFE  = 60;       // frames before dot fades (~1 sec at 60fps)
 float MATCH_A   = 8.0;      // deg  — "same target" threshold
 float MATCH_D   = 4.0;      // cm   — "same target" threshold
 
@@ -181,7 +181,7 @@ void setup() {
   printArray(ports);
   if (ports.length > 0) {
     try {
-      myPort = new Serial(this, ports[0], 9600);
+      myPort = new Serial(this, ports[0], 115200);
       myPort.bufferUntil('\n');
       serialReady = true;
     } catch (Exception e) {
