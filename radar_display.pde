@@ -97,7 +97,10 @@ float closestEver     = 9999;
 // ================================================================
 // PROXIMITY LEVEL  (smoothed, for the bar)
 // ================================================================
-float smoothLevel = 0;
+float smoothLevel    = 0;
+float prevLevel      = 0;
+float levelVelocity  = 0;
+String approachState = "";
 
 // ================================================================
 // SOUND
@@ -218,7 +221,14 @@ void draw() {
 
   // ── Proximity level (for bar) ──
   float lv  = (rawDist > 0 && rawDist < maxDist) ? 1.0 - (rawDist / maxDist) : 0;
-  smoothLevel = lerp(smoothLevel, lv, 0.08);
+  prevLevel     = smoothLevel;
+  smoothLevel   = lerp(smoothLevel, lv, 0.18);
+  levelVelocity = smoothLevel - prevLevel;
+
+  // Approach state
+  if      (abs(levelVelocity) < 0.001) approachState = "";
+  else if (levelVelocity > 0)          approachState = "APPROACHING";
+  else                                  approachState = "RETREATING";
 
   // ── Register detection if distance is valid ──
   if (rawDist >= 1 && rawDist < maxDist) {
@@ -232,6 +242,21 @@ void draw() {
   // ── Update sounds & recording ──
   if (bellCooldown > 0) bellCooldown--;
   if (recording) recBuffer.add(nf(rawAngle,0,2)+","+nf(rawDist,0,2));
+
+  // ── Send buzzer command to Arduino based on active dots ──
+  if (serialReady && dotCount > 0) {
+    float minDist = maxDist;
+    for (int i = 0; i < dotCount; i++) {
+      float fade = 1.0 - (float)dotAge[i] / DOT_LIFE;
+      if (fade > 0 && dotD[i] < minDist) minDist = dotD[i];
+    }
+    int beepInterval = int(map(minDist, 0, maxDist, 4, 50));
+    if (frameCount % beepInterval == 0) {
+      myPort.write("B\n");
+    }
+  } else if (serialReady) {
+    myPort.write("S\n");  // stop buzzer
+  }
 
   // ── Render ──
   background(C_BG);
@@ -669,15 +694,62 @@ void drawProximityBar() {
 
   noStroke();
   float lv = constrain(smoothLevel, 0, 1);
-  if      (lv > 0.75) fill(C_ALERT);
-  else if (lv > 0.45) fill(C_WARN);
-  else                fill(C_COLD);
+
+  // Gradual colour: green → yellow-green → yellow → orange → red
+  float r, g, b;
+  if (lv < 0.25) {
+    r = lerp(0,   180, lv / 0.25);
+    g = lerp(220, 255, lv / 0.25);
+    b = lerp(120,  50, lv / 0.25);
+  } else if (lv < 0.5) {
+    r = lerp(180, 255, (lv - 0.25) / 0.25);
+    g = lerp(255, 220, (lv - 0.25) / 0.25);
+    b = lerp( 50,   0, (lv - 0.25) / 0.25);
+  } else if (lv < 0.75) {
+    r = lerp(255, 255, (lv - 0.5) / 0.25);
+    g = lerp(220, 100, (lv - 0.5) / 0.25);
+    b = 0;
+  } else {
+    r = 255;
+    g = lerp(100, 0, (lv - 0.75) / 0.25);
+    b = 0;
+  }
+
+  fill(r, g, b, 230);
   rect(bx, by, bw * lv, bh, 5);
 
+  // Pulse when in danger zone
+  if (lv > 0.85) {
+    float pulse = 0.5 + 0.5 * sin(frameCount * 0.3);
+    fill(255, 0, 0, pulse * 80);
+    rect(bx, by, bw * lv, bh, 5);
+  }
+
+  // Approach / retreat arrow indicator
+  if (approachState.equals("APPROACHING")) {
+    fill(255, 80, 80, 220);
+    textAlign(LEFT);
+    textSize(9);
+    text("▶▶ APPROACHING", bx, by - 3);
+  } else if (approachState.equals("RETREATING")) {
+    fill(0, 200, 120, 200);
+    textAlign(LEFT);
+    textSize(9);
+    text("◀◀ RETREATING", bx, by - 3);
+  }
+
+  // Velocity bar (thin line above main bar showing rate of change)
+  float vel = constrain(abs(levelVelocity) * 80, 0, bw);
+  noStroke();
+  if (levelVelocity > 0) fill(255, 60, 60, 180);   // red = approaching
+  else                   fill(0, 200, 120, 180);    // green = retreating
+  rect(bx, by - 5, vel, 3, 2);
+
+  // Label
   fill(C_HUD_DIM);
   textAlign(CENTER);
   textSize(8);
-  text("PROXIMITY", width/2, by-3);
+  text("PROXIMITY", width/2, by + bh + 10);
 }
 
 // ================================================================
