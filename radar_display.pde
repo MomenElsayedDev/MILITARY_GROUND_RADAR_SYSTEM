@@ -219,8 +219,16 @@ void draw() {
   // ── Smooth sweep angle (visual only) ──
   smoothAngle = lerpAngle(smoothAngle, rawAngle, 0.22);
 
-  // ── Proximity level (for bar) ──
-  float lv  = (rawDist > 0 && rawDist < maxDist) ? 1.0 - (rawDist / maxDist) : 0;
+  // ── Proximity level based on distance zones ──
+  // 0-15cm  = DANGER  → level 1.0 → 0.67
+  // 15-20cm = MEDIUM  → level 0.67 → 0.33
+  // 20-40cm = NORMAL  → level 0.33 → 0.0
+  float lv = 0;
+  if (rawDist > 0 && rawDist < maxDist) {
+    if      (rawDist <= 15) lv = map(rawDist,  0, 15, 1.0, 0.67);
+    else if (rawDist <= 20) lv = map(rawDist, 15, 20, 0.67, 0.33);
+    else                    lv = map(rawDist, 20, 40, 0.33, 0.0);
+  }
   prevLevel     = smoothLevel;
   smoothLevel   = lerp(smoothLevel, lv, 0.18);
   levelVelocity = smoothLevel - prevLevel;
@@ -695,35 +703,55 @@ void drawProximityBar() {
   noStroke();
   float lv = constrain(smoothLevel, 0, 1);
 
-  // Gradual colour: green → yellow-green → yellow → orange → red
+  // Zone colours:
+  // lv 0.67→1.0  = DANGER  (0-15cm)  → red
+  // lv 0.33→0.67 = MEDIUM  (15-20cm) → orange/yellow
+  // lv 0.0→0.33  = NORMAL  (20-40cm) → green
   float r, g, b;
-  if (lv < 0.25) {
-    r = lerp(0,   180, lv / 0.25);
-    g = lerp(220, 255, lv / 0.25);
-    b = lerp(120,  50, lv / 0.25);
-  } else if (lv < 0.5) {
-    r = lerp(180, 255, (lv - 0.25) / 0.25);
-    g = lerp(255, 220, (lv - 0.25) / 0.25);
-    b = lerp( 50,   0, (lv - 0.25) / 0.25);
-  } else if (lv < 0.75) {
-    r = lerp(255, 255, (lv - 0.5) / 0.25);
-    g = lerp(220, 100, (lv - 0.5) / 0.25);
+  if (lv >= 0.67) {
+    // DANGER — orange → red
+    float t = (lv - 0.67) / 0.33;
+    r = 255;
+    g = lerp(120, 0, t);
+    b = 0;
+  } else if (lv >= 0.33) {
+    // MEDIUM — yellow → orange
+    float t = (lv - 0.33) / 0.34;
+    r = 255;
+    g = lerp(220, 120, t);
     b = 0;
   } else {
-    r = 255;
-    g = lerp(100, 0, (lv - 0.75) / 0.25);
-    b = 0;
+    // NORMAL — green → yellow-green
+    float t = lv / 0.33;
+    r = lerp(0,   255, t);
+    g = lerp(220, 220, t);
+    b = lerp(120,   0, t);
   }
 
   fill(r, g, b, 230);
   rect(bx, by, bw * lv, bh, 5);
 
-  // Pulse when in danger zone
-  if (lv > 0.85) {
-    float pulse = 0.5 + 0.5 * sin(frameCount * 0.3);
-    fill(255, 0, 0, pulse * 80);
+  // Pulse in danger zone
+  if (lv >= 0.67) {
+    float pulse = 0.5 + 0.5 * sin(frameCount * 0.35);
+    fill(255, 0, 0, pulse * 90);
     rect(bx, by, bw * lv, bh, 5);
   }
+
+  // Zone divider lines
+  stroke(0, 0, 0, 100);
+  strokeWeight(1);
+  line(bx + bw * 0.33, by, bx + bw * 0.33, by + bh);  // normal | medium
+  line(bx + bw * 0.67, by, bx + bw * 0.67, by + bh);  // medium | danger
+
+  // Zone labels inside bar
+  noStroke();
+  fill(0, 0, 0, 160);
+  textSize(7);
+  textAlign(CENTER);
+  text("NORMAL",  bx + bw * 0.165, by + bh - 3);
+  text("MEDIUM",  bx + bw * 0.50,  by + bh - 3);
+  text("DANGER",  bx + bw * 0.835, by + bh - 3);
 
   // Approach / retreat arrow indicator
   if (approachState.equals("APPROACHING")) {
@@ -841,7 +869,7 @@ void drawCompassRose() {
 // ================================================================
 void drawAlerts() {
   // Proximity flash
-  if (rawDist >= 1 && rawDist < 8) {
+  if (rawDist >= 1 && rawDist <= 15) {
     float blink = (sin(frameCount * 0.35) > 0) ? 255 : 0;
     noStroke();
     fill(255, 0, 0, blink * 0.3);
